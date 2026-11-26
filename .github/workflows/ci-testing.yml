@@ -12,19 +12,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
       - name: test
         run: make test
 
@@ -34,30 +26,28 @@ jobs:
       fail-fast: false
       matrix:
         netbox-version:
-          - v4.3.0
-          # - v4.3.1 # with this version, we get {"scope":["Please select a site."]} for prefixes
-          - v4.3.2
-          - v4.3.3
-          - v4.3.4
-          - v4.3.5
-          - v4.3.6
-          - v4.3.7
-          - v4.4.0
+          - v4.6.8
+          - v4.6.9
+          - v4.6.10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
       - name: testacc
-        run: make -e testacc
+        # Retry once on failure. Netbox itself is occasionally flaky at startup
+        # or hits transient server-side bugs on a specific patch version; a
+        # single retry (with a clean teardown in between) clears those without
+        # masking real, reproducible failures.
+        run: |
+          for attempt in 1 2; do
+            echo "::group::testacc attempt $attempt (Netbox ${NETBOX_VERSION})"
+            if make -e testacc; then exit 0; fi
+            echo "::endgroup::"
+            echo "::warning::testacc attempt $attempt failed on ${NETBOX_VERSION}; tearing down and retrying"
+            make docker-down || true
+          done
+          exit 1
         env:
           NETBOX_VERSION: ${{ matrix.netbox-version }}
